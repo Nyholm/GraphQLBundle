@@ -81,11 +81,13 @@ final class TypeBuilder
     private string $type;
     private string $currentField;
     private string $gqlServices = '$'.TypeGenerator::GRAPHQL_SERVICES;
+    private bool $isSf74Plus;
 
     public function __construct(ExpressionConverter $expressionConverter, string $namespace)
     {
         $this->expressionConverter = $expressionConverter;
         $this->namespace = $namespace;
+        $this->isSf74Plus = class_exists('\Symfony\Component\Validator\Constraints\Video') && (int) \Symfony\Component\HttpKernel\Kernel::VERSION >= 8;
 
         // Register additional converter in the php code generator
         Config::registerConverter($expressionConverter, ConverterInterface::TYPE_STRING);
@@ -639,7 +641,7 @@ final class TypeBuilder
                 $constructor = $reflectionClass->getConstructor();
 
                 $inlineParameters = false;
-                if ($constructor !== null) {
+                if (!$this->isSf74Plus && $constructor !== null) {
                     $parameterNames = [];
                     $parameters = $constructor->getParameters();
                     foreach ($parameters as $parameter) {
@@ -676,10 +678,22 @@ final class TypeBuilder
                         $options[$key] = $option;
                     }
 
-                    $instance->addArgument($options);
+                    if ($this->isSf74Plus) {
+                        foreach ($options as $key => $value) {
+                            $instance->addArgument(new Literal(sprintf('%s: %s', $key, Utils::stringify($value))));
+                        }
+                    } else {
+                        $instance->addArgument($options);
+                    }
                 } elseif ($inlineParameters === false) {
                     // Numeric or Assoc array?
-                    $instance->addArgument(isset($args[0]) ? $args : Collection::assoc($args));
+                    if ($this->isSf74Plus && !isset($args[0])) {
+                        foreach ($args as $key => $value) {
+                            $instance->addArgument(new Literal(sprintf('%s: %s', $key, Utils::stringify($value))));
+                        }
+                    } else {
+                        $instance->addArgument(isset($args[0]) ? $args : Collection::assoc($args));
+                    }
                 }
             } elseif (null !== $args) {
                 $instance->addArgument($args);
